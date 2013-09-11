@@ -24,12 +24,16 @@ class Dep
         tos << arg
       end
       
-      o.on('-c', '--case-sensitive', "make module name case sensitive (default: #{dep.case_sensitive})") do |a|
+      o.on('-c', '--[no-]case-sensitive', "make module name case sensitive (default: #{dep.case_sensitive})") do |a|
         dep.case_sensitive = a
       end
       
-      o.on('-l', '--cluster', TrueClass, "clustering by directory structure (default: #{dep.cluster})") do |a|
+      o.on('-l', '--[no-]cluster', TrueClass, "clustering by directory structure (default: #{dep.cluster})") do |a|
         dep.cluster = a
+      end
+      
+      o.on('-f', '--[no-]fan-counter', TrueClass, "enable fan-in/fan-out counter (default: #{dep.fan_counter})") do |a|
+        dep.fan_counter = a
       end
       
       o.parse!(argv)
@@ -53,6 +57,7 @@ class Dep
   attr_accessor :source_code_filters
   attr_accessor :case_sensitive
   attr_accessor :cluster
+  attr_accessor :fan_counter
 
   def initialize
     @io = STDOUT
@@ -60,6 +65,7 @@ class Dep
     @source_code_filters = []
     @case_sensitive = false
     @cluster = false
+    @fan_counter = false
   end
 
   def run(globs)
@@ -190,9 +196,13 @@ class Dep
   
   def print_node(graph, node_name, node, indent=nil)
     node.files.each {|f| @io.puts %{#{indent}/* #{f} */} }
-    fan_in = graph.count {|n,d| d.links.include?(node_name) }
-    fan_out = node.links.size
-    @io.puts %{#{indent}"#{node_name}" [label = "#{node.label}|{#{fan_in} in|#{fan_out} out}", shape = Mrecord];}
+    if @fan_counter
+      fan_in = graph.count {|n,d| d.links.include?(node_name) }
+      fan_out = node.links.size
+      @io.puts %{#{indent}"#{node_name}" [label = "#{node.label}|{#{fan_in} in|#{fan_out} out}", shape = Mrecord];}
+    else
+      @io.puts %{#{indent}"#{node_name}" [label = "#{node.label}", shape = ellipse];}
+    end
   end
   
   def print_digraph
