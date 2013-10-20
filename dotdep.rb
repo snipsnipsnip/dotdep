@@ -36,6 +36,10 @@ class Dep
         dep.fan_counter = a
       end
       
+      o.on('-r', '--[no-]reduce', TrueClass, "enable compaction a la tred (default: #{dep.reduce})") do |a|
+        dep.reduce = a
+      end
+      
       o.parse!(argv)
       
       if froms.size != tos.size
@@ -58,6 +62,7 @@ class Dep
   attr_accessor :case_sensitive
   attr_accessor :cluster
   attr_accessor :fan_counter
+  attr_accessor :reduce
 
   def initialize
     @io = STDOUT
@@ -66,12 +71,13 @@ class Dep
     @case_sensitive = false
     @cluster = false
     @fan_counter = false
+    @reduce = false
   end
 
   def run(globs)
     graph = scan(@source_code_filters, @case_sensitive, list(globs, @ignore_file_matcher))
     
-    tred! graph
+    tred! graph if @reduce
     
     if @cluster && (clusters = calc_cluster(graph)).size >= 2
       print_cluster(graph, clusters)
