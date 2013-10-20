@@ -71,6 +71,8 @@ class Dep
   def run(globs)
     graph = scan(@source_code_filters, @case_sensitive, list(globs, @ignore_file_matcher))
     
+    tred! graph
+    
     if @cluster && (clusters = calc_cluster(graph)).size >= 2
       print_cluster(graph, clusters)
     else
@@ -79,6 +81,34 @@ class Dep
   end
   
   private
+  
+  # transitively reduce graph
+  def tred!(graph)
+    marks = Set.new
+    graph.each {|name, node| tred_dfs graph, marks, name, node, nil }
+  end
+  
+  def tred_dfs(graph, marks, node_name, node, parent)
+    marks.add node_name
+    
+    graph.each do |from_name, from|
+      if from != parent && marks.include?(from_name)
+        from.links.delete node_name and
+        warn "deleted #{from_name} -> #{node_name}"
+      end
+    end
+    
+    node.links.each do |to_name|
+      if marks.include?(to_name)
+        warn "tred: detected cycle involving #{node_name} -> #{to_name}"
+      else
+        to = graph[to_name]
+        tred_dfs graph, marks, to_name, to, node
+      end
+    end
+    
+    marks.delete node_name
+  end
   
   def list(globs, ignore)
     globs.map {|g| Dir[g].reject {|x| ignore === x } }.flatten
