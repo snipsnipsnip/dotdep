@@ -38,6 +38,10 @@ class Dep
         dep.fan_counter = a
       end
       
+      o.on('-s', '--[no-]scale', TrueClass, "scale node by its importance (default: #{dep.scale})") do |a|
+        dep.scale = a
+      end
+      
       o.on('-r', '--reduce', "increase compaction level a la Graphviz tred (default: #{dep.reduce})") do
         dep.reduce += 1
       end
@@ -70,6 +74,7 @@ class Dep
   attr_accessor :cluster
   attr_accessor :fan_counter
   attr_accessor :reduce
+  attr_accessor :scale
 
   def initialize
     @io = STDOUT
@@ -78,13 +83,14 @@ class Dep
     @case_sensitive = false
     @cluster = false
     @fan_counter = false
+    @scale = false
     @reduce = 0
   end
 
   def run(globs)
     graph = scan(@source_code_filters, @case_sensitive, list(globs, @ignore_file_matcher))
     tred = Tred.new(graph, @reduce)
-    node_decorator = NodeDecorator.new(graph, @fan_counter)
+    node_decorator = NodeDecorator.new(graph, @fan_counter, @scale)
     printer = DotGraphPrinter.new(@io, @cluster, node_decorator, tred)
     printer.print_graph(graph)
   end
@@ -263,9 +269,10 @@ class Dep
   end
   
   class NodeDecorator
-    def initialize(graph, fan_counter)
+    def initialize(graph, fan_counter, scale)
       @graph = graph
       @fan_counter = fan_counter
+      @node_size = scale ? calc_node_size : Hash.new(1)
     end
     
     def calc_node_style(node_name, node)
@@ -273,7 +280,59 @@ class Dep
         fan_in = @graph.count {|n,d| d.links.include?(node_name) }
         fan_out = node.links.size
       end
-      return 40, fan_in, fan_out
+      return 30 * @node_size[node_name], fan_in, fan_out
+    end
+        
+    private
+    
+    def calc_node_size
+      count = 0
+      pageranks = iterate_pageranks(@graph) do |curr, prev|
+        count += 1
+        break curr if count > 100 || diff(curr, prev) < 0.01
+      end
+      
+      node_size = {}
+      min = pageranks.min
+      @graph.keys.sort.each_with_index do |name, i|
+        node_size[name] = 1 + Math.log(pageranks[i] / min)
+        warn "%s: %.2f -> %.2f" % [name, pageranks[i] / min, Math.log(pageranks[i] / min)] if $DEBUG
+      end
+      
+      node_size
+    end
+    
+    def iterate_pageranks(graph, warp_rate=0.85)
+      n = graph.size
+      names = graph.keys.sort
+      links = graph.map {|name, node| node.links.map {|name| names.index name } }
+      pageranks = Array.new(n, 1.0 / n)
+      next_pageranks = Array.new(n)
+      
+      while true
+        warp_score = dot(pageranks, links) {|s,ns| ns.empty? ? s : 0 }
+        base = (warp_rate * warp_score + 1 - warp_rate) / n
+        
+        n.times do |i|
+          score = dot(pageranks, links) {|s,ns| ns.include?(i) ? s / ns.size : 0 }
+          next_pageranks[i] = warp_rate * score + base
+        end
+        
+        pageranks, next_pageranks = next_pageranks, pageranks
+        yield pageranks, next_pageranks
+      end
+      
+      pageranks
+    end
+    
+    def dot(xs, ys)
+      sum = 0
+      xs.zip(ys) {|a, b| sum += yield(a, b) }
+      sum
+    end
+    
+    def diff(x, y)
+      dot(x, y) {|a, b| (a - b).abs }
     end
   end
   
