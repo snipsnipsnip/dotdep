@@ -82,7 +82,8 @@ class Dep
   def run(globs)
     graph = scan(@source_code_filters, @case_sensitive, list(globs, @ignore_file_matcher))
     tred = Tred.new(graph, @reduce)
-    printer = DotGraphPrinter.new(@io, @cluster, @fan_counter, tred)
+    node_decorator = NodeDecorator.new(graph, @fan_counter)
+    printer = DotGraphPrinter.new(@io, @cluster, node_decorator, tred)
     printer.print_graph(graph)
   end
   
@@ -133,10 +134,10 @@ class Dep
   
   # print graph in Graphviz DOT format
   class DotGraphPrinter
-    def initialize(io, cluster, fan_counter, link_decorator)
+    def initialize(io, cluster, node_decorator, link_decorator)
       @io = io
       @cluster = cluster
-      @fan_counter = fan_counter
+      @node_decorator = node_decorator
       @link_decorator = link_decorator
     end
   
@@ -236,12 +237,11 @@ class Dep
     
     def print_node(graph, node_name, node, indent=nil)
       node.files.each {|f| @io.puts %{#{indent}/* #{f} */} }
-      if @fan_counter
-        fan_in = graph.count {|n,d| d.links.include?(node_name) }
-        fan_out = node.links.size
-        @io.puts %{#{indent}"#{node_name}" [label = "#{node.label}|{#{fan_in} in|#{fan_out} out}", shape = Mrecord];}
+      fontsize, fan_in, fan_out = @node_decorator.calc_node_style(node_name, node)
+      if fan_in
+        @io.puts %{#{indent}"#{node_name}" [label = "#{node.label}|{#{fan_in} in|#{fan_out} out}", shape = Mrecord, fontsize=#{fontsize}];}
       else
-        @io.puts %{#{indent}"#{node_name}" [label = "#{node.label}", shape = ellipse];}
+        @io.puts %{#{indent}"#{node_name}" [label = "#{node.label}", shape = ellipse, fontsize=#{fontsize}];}
       end
     end
     
@@ -257,6 +257,21 @@ class Dep
       yield
       
       @io.puts '}'
+    end
+  end
+  
+  class NodeDecorator
+    def initialize(graph, fan_counter)
+      @graph = graph
+      @fan_counter = fan_counter
+    end
+    
+    def calc_node_style(node_name, node)
+      if @fan_counter
+        fan_in = @graph.count {|n,d| d.links.include?(node_name) }
+        fan_out = node.links.size
+      end
+      return 40, fan_in, fan_out
     end
   end
   
