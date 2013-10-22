@@ -264,6 +264,7 @@ class Dep
     def initialize(graph, fan_counter)
       @graph = graph
       @fan_counter = fan_counter
+      @node_size = calc_node_size
     end
     
     def calc_node_style(node_name, node)
@@ -271,7 +272,59 @@ class Dep
         fan_in = @graph.count {|n,d| d.links.include?(node_name) }
         fan_out = node.links.size
       end
-      return 40, fan_in, fan_out
+      return 30 * @node_size[node_name], fan_in, fan_out
+    end
+        
+    private
+    
+    def calc_node_size
+      count = 0
+      pageranks = iterate_pageranks(@graph) do |curr, prev|
+        count += 1
+        break curr if count > 100 || diff(curr, prev) < 0.01
+      end
+      
+      node_size = {}
+      min = pageranks.min
+      @graph.keys.sort.each_with_index do |name, i|
+        node_size[name] = 1 + Math.log(pageranks[i] / min)
+        warn "%s: %.2f -> %.2f" % [name, pageranks[i] / min, Math.log(pageranks[i] / min)] if $DEBUG
+      end
+      
+      node_size
+    end
+    
+    def iterate_pageranks(graph, warp_rate=0.85)
+      n = graph.size
+      names = graph.keys.sort
+      links = graph.map {|name, node| node.links.map {|name| names.index name } }
+      pageranks = Array.new(n, 1.0 / n)
+      next_pageranks = Array.new(n)
+      
+      while true
+        warp_score = dot(pageranks, links) {|s,ns| ns.empty? ? s : 0 }
+        base = (warp_rate * warp_score + 1 - warp_rate) / n
+        
+        n.times do |i|
+          score = dot(pageranks, links) {|s,ns| ns.include?(i) ? s / ns.size : 0 }
+          next_pageranks[i] = warp_rate * score + base
+        end
+        
+        pageranks, next_pageranks = next_pageranks, pageranks
+        yield pageranks, next_pageranks
+      end
+      
+      pageranks
+    end
+    
+    def dot(xs, ys)
+      sum = 0
+      xs.zip(ys) {|a, b| sum += yield(a, b) }
+      sum
+    end
+    
+    def diff(x, y)
+      dot(x, y) {|a, b| (a - b).abs }
     end
   end
   
