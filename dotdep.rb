@@ -256,7 +256,6 @@ class Dep
   end
   
   def print_digraph
-    @io.puts '// try TRED tool of graphviz if you want simpler (transitively reduced) graph'
     @io.puts 'digraph {'
     @io.puts '  overlap = false;'
     @io.puts '  rankdir = LR;'
