@@ -72,6 +72,7 @@ class Dep
     @cluster = false
     @fan_counter = false
     @reduce = false
+    @reduced_links = nil
   end
 
   def run(globs)
@@ -91,23 +92,21 @@ class Dep
   # transitively reduce graph
   def tred!(graph)
     marks = Set.new
-    graph.each {|name, node| tred_dfs graph, marks, name, node, nil }
+    @reduced_links = Set.new
+    graph.to_a.shuffle.each {|name, node| tred_dfs graph, marks, name, node, nil }
   end
   
   def tred_dfs(graph, marks, node_name, node, parent)
     marks.add node_name
     
     graph.each do |from_name, from|
-      if from != parent && marks.include?(from_name)
-        from.links.delete node_name and
-        warn "deleted #{from_name} -> #{node_name}"
+      if from != parent && from.links.include?(node_name) && marks.include?(from_name)
+        @reduced_links << [from_name, node_name]
       end
     end
     
     node.links.each do |to_name|
-      if marks.include?(to_name)
-        warn "tred: detected cycle involving #{node_name} -> #{to_name}"
-      else
+      if !marks.include?(to_name) && !@reduced_links.include?([node_name, to_name])
         to = graph[to_name]
         tred_dfs graph, marks, to_name, to, node
       end
@@ -227,7 +226,12 @@ class Dep
   end
   
   def print_link(from, to, indent=nil)
-    @io.puts %{#{indent}"#{from}" -> "#{to}";} if from != to
+    return if from == to
+    if @reduced_links && @reduced_links.include?([from, to])
+      @io.puts %{#{indent}"#{from}" -> "#{to}" [color="#3366ff66", style=solid, arrowsize=1, style="setlinewidth(4)"];}
+    else
+      @io.puts %{#{indent}"#{from}" -> "#{to}";}
+    end
   end
   
   def print_node(graph, node_name, node, indent=nil)
@@ -246,8 +250,9 @@ class Dep
     @io.puts 'digraph {'
     @io.puts '  overlap = false;'
     @io.puts '  rankdir = LR;'
-    @io.puts '  node [style = filled, fontcolor = "#123456", fillcolor = white, fontsize = 30, fontname="Arial, Helvetica"];'
-    @io.puts '  edge [color = "#661122"];'
+    @io.puts '  nodesep = 0.5;'
+    @io.puts '  node [fontsize = 40, style = filled, fontcolor = "#123456", fillcolor = white,fontname="Arial, Helvetica", margin="0.22,0.1"];'
+    @io.puts '  edge [color = "#ff1122dd", arrowsize=2, style="setlinewidth(4)"];'
     @io.puts '  bgcolor = "transparent";'
     
     yield
