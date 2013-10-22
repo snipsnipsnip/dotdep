@@ -11,6 +11,8 @@ class Dep
     OptionParser.new do |o|
       o.banner += " source-file.."
       
+      o.version = '0.0.1'
+      
       o.on('-i REGEXP', '--ignore', 'ignore files') do |arg|
         dep.ignore_file_matcher and warn "warning: overwriting ignore expression; you should use |"
         dep.ignore_file_matcher = Regexp.new(arg)
