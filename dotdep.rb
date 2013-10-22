@@ -36,6 +36,10 @@ class Dep
         dep.fan_counter = a
       end
       
+      o.on('-s', '--[no-]scale', TrueClass, "scale node by its importance (default: #{dep.scale})") do |a|
+        dep.scale = a
+      end
+      
       o.on('-r', '--reduce', "increase compaction level a la Graphviz tred (default: #{dep.reduce})") do
         dep.reduce += 1
       end
@@ -68,6 +72,7 @@ class Dep
   attr_accessor :cluster
   attr_accessor :fan_counter
   attr_accessor :reduce
+  attr_accessor :scale
 
   def initialize
     @io = STDOUT
@@ -76,13 +81,14 @@ class Dep
     @case_sensitive = false
     @cluster = false
     @fan_counter = false
+    @scale = false
     @reduce = 0
   end
 
   def run(globs)
     graph = scan(@source_code_filters, @case_sensitive, list(globs, @ignore_file_matcher))
     tred = Tred.new(graph, @reduce)
-    node_decorator = NodeDecorator.new(graph, @fan_counter)
+    node_decorator = NodeDecorator.new(graph, @fan_counter, @scale)
     printer = DotGraphPrinter.new(@io, @cluster, node_decorator, tred)
     printer.print_graph(graph)
   end
@@ -261,10 +267,10 @@ class Dep
   end
   
   class NodeDecorator
-    def initialize(graph, fan_counter)
+    def initialize(graph, fan_counter, scale)
       @graph = graph
       @fan_counter = fan_counter
-      @node_size = calc_node_size
+      @node_size = scale ? calc_node_size : Hash.new(1)
     end
     
     def calc_node_style(node_name, node)
