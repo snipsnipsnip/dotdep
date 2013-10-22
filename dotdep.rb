@@ -36,9 +36,14 @@ class Dep
         dep.fan_counter = a
       end
       
-      o.on('-r', '--[no-]reduce', TrueClass, "enable compaction a la tred (default: #{dep.reduce})") do |a|
-        dep.reduce = a
+      o.on('-r', '--reduce', "increase compaction level a la Graphviz tred (default: #{dep.reduce})") do
+        dep.reduce += 1
       end
+      
+      o.separator "  level 0: no reduction at all"
+      o.separator "  level 1 (-r): randomly guess and dim unimportant path"
+      o.separator "  level 2 (-rr): randomly guess and ignore unimportant path on layout"
+      o.separator "  level 3 (-rrr): randomly guess and delete unimportant path"
       
       o.parse!(argv)
       
@@ -57,6 +62,10 @@ class Dep
     dep.run(argv)
   end
   
+  REDUCE_LEVEL_HIGHLIGHT = 1
+  REDUCE_LEVEL_IGNORE = 2
+  REDUCE_LEVEL_DELETE = 3
+  
   attr_accessor :ignore_file_matcher
   attr_accessor :source_code_filters
   attr_accessor :case_sensitive
@@ -71,14 +80,14 @@ class Dep
     @case_sensitive = false
     @cluster = false
     @fan_counter = false
-    @reduce = false
+    @reduce = 0
     @reduced_links = nil
   end
 
   def run(globs)
     graph = scan(@source_code_filters, @case_sensitive, list(globs, @ignore_file_matcher))
     
-    tred! graph if @reduce
+    tred! graph if @reduce > 0
     
     if @cluster && (clusters = calc_cluster(graph)).size >= 2
       print_cluster(graph, clusters)
@@ -227,8 +236,9 @@ class Dep
   
   def print_link(from, to, indent=nil)
     return if from == to
-    if @reduced_links && @reduced_links.include?([from, to])
-      @io.puts %{#{indent}"#{from}" -> "#{to}" [color="#3366ff66", style=solid, arrowsize=1, style="setlinewidth(4)"];}
+    if @reduce >= REDUCE_LEVEL_HIGHLIGHT && @reduced_links.include?([from, to])
+      return if @reduce >= REDUCE_LEVEL_DELETE
+      @io.puts %{#{indent}"#{from}" -> "#{to}" [color="#3366ff66", style=solid, arrowsize=1, style="setlinewidth(4)"#{', constraint=false' if @reduce >= REDUCE_LEVEL_IGNORE}];}
     else
       @io.puts %{#{indent}"#{from}" -> "#{to}";}
     end
