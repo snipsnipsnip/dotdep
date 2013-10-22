@@ -62,10 +62,6 @@ class Dep
     dep.run(argv)
   end
   
-  REDUCE_LEVEL_HIGHLIGHT = 1
-  REDUCE_LEVEL_IGNORE = 2
-  REDUCE_LEVEL_DELETE = 3
-  
   attr_accessor :ignore_file_matcher
   attr_accessor :source_code_filters
   attr_accessor :case_sensitive
@@ -81,13 +77,12 @@ class Dep
     @cluster = false
     @fan_counter = false
     @reduce = 0
-    @reduced_links = nil
   end
 
   def run(globs)
     graph = scan(@source_code_filters, @case_sensitive, list(globs, @ignore_file_matcher))
     
-    tred! graph if @reduce > 0
+    @tred = Tred.new(graph, @reduce)
     
     if @cluster && (clusters = calc_cluster(graph)).size >= 2
       print_cluster(graph, clusters)
@@ -97,33 +92,7 @@ class Dep
   end
   
   private
-  
-  # transitively reduce graph
-  def tred!(graph)
-    marks = Set.new
-    @reduced_links = Set.new
-    graph.to_a.shuffle.each {|name, node| tred_dfs graph, marks, name, node, nil }
-  end
-  
-  def tred_dfs(graph, marks, node_name, node, parent)
-    marks.add node_name
     
-    graph.each do |from_name, from|
-      if from != parent && from.links.include?(node_name) && marks.include?(from_name)
-        @reduced_links << [from_name, node_name]
-      end
-    end
-    
-    node.links.each do |to_name|
-      if !marks.include?(to_name) && !@reduced_links.include?([node_name, to_name])
-        to = graph[to_name]
-        tred_dfs graph, marks, to_name, to, node
-      end
-    end
-    
-    marks.delete node_name
-  end
-  
   def list(globs, ignore)
     globs.map {|g| Dir[g].reject {|x| ignore === x } }.flatten
   end
@@ -236,11 +205,18 @@ class Dep
   
   def print_link(from, to, indent=nil)
     return if from == to
-    if @reduce >= REDUCE_LEVEL_HIGHLIGHT && @reduced_links.include?([from, to])
-      return if @reduce >= REDUCE_LEVEL_DELETE
-      @io.puts %{#{indent}"#{from}" -> "#{to}" [color="#3366ff66", style=solid, arrowsize=1, style="setlinewidth(4)"#{', constraint=false' if @reduce >= REDUCE_LEVEL_IGNORE}];}
-    else
+    
+    case @tred.calc_link_style(from, to)
+    when :normal
       @io.puts %{#{indent}"#{from}" -> "#{to}";}
+    when :dim
+      @io.puts %{#{indent}"#{from}" -> "#{to}" [color="#3366ff66", style=solid, arrowsize=1, style="setlinewidth(4)"];}
+    when :ignore
+      @io.puts %{#{indent}"#{from}" -> "#{to}" [color="#3366ff66", style=solid, arrowsize=1, style="setlinewidth(4)", constraint=false];}
+    when :delete
+      # output nothing
+    else
+      raise "unexpected value from Tred#filter"
     end
   end
   
@@ -267,6 +243,62 @@ class Dep
     yield
     
     @io.puts '}'
+  end
+  
+  # calculates transitive reduction and determine link style
+  class Tred
+    REDUCE_LEVEL_NONE = 0
+    REDUCE_LEVEL_HIGHLIGHT = 1
+    REDUCE_LEVEL_IGNORE = 2
+    REDUCE_LEVEL_DELETE = 3
+    
+    def initialize(graph, level)
+      @reduced_links = Set.new
+      @reduce_level = level
+      tred! graph if @reduce_level > REDUCE_LEVEL_NONE
+    end
+    
+    # calculate style for link from from_node to to_node
+    def calc_link_style(from_node, to_node)
+      if reduced?(from_node, to_node)
+        @reply ||= [:normal, :dim, :ignore, :delete][@reduce_level]
+      else
+        :normal
+      end
+    end
+    
+    def reduced?(from, to)
+      if @reduce_level != REDUCE_LEVEL_NONE
+        @reduced_links.include?([from, to])
+      end
+    end
+    
+    private
+  
+    # calculate transitive reduction
+    def tred!(graph)
+      marks = Set.new
+      graph.to_a.shuffle.each {|name, node| tred_dfs graph, marks, name, node, nil }
+    end
+    
+    def tred_dfs(graph, marks, node_name, node, parent)
+      marks.add node_name
+      
+      graph.each do |from_name, from|
+        if from != parent && from.links.include?(node_name) && marks.include?(from_name)
+          @reduced_links << [from_name, node_name]
+        end
+      end
+      
+      node.links.each do |to_name|
+        if !marks.include?(to_name) && !@reduced_links.include?([node_name, to_name])
+          to = graph[to_name]
+          tred_dfs graph, marks, to_name, to, node
+        end
+      end
+      
+      marks.delete node_name
+    end
   end
 end
 
